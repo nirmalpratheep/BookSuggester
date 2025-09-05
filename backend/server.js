@@ -122,9 +122,23 @@ Additional Requirements:
 
 async function callGemini(profile, maxPerCategory, excludeTitles, seed) {
     try {
+        if (!process.env.GEMINI_API_KEY) {
+            console.error('GEMINI_API_KEY is not set in environment variables');
+            throw new Error('GEMINI_API_KEY is not configured');
+        }
+
         const { system, instruction } = buildPrompt(profile, maxPerCategory, excludeTitles, seed);
         
-        const response = await axios.post('https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent', {
+        console.log('Calling Gemini API with API key:', process.env.GEMINI_API_KEY.substring(0, 5) + '...');
+                const geminiApiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+        console.log('Gemini API URL:', geminiApiUrl);
+        const headers = {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': process.env.GEMINI_API_KEY
+        };
+        console.log('Gemini API Headers:', headers);
+
+        const response = await axios.post(geminiApiUrl, {
             contents: [{
                 role: 'user',
                 parts: [{
@@ -242,7 +256,7 @@ app.post('/api/recommend', async (req, res) => {
     console.log('Received recommendation request:', JSON.stringify(req.body, null, 2));
 
     try {
-        const profile = req.body;
+        const profile = req.body.profile || req.body;
         if (!profile || !profile.age || !profile.reading_level) {
             return res.status(400).json({
                 error: 'Invalid request. Required fields: age, reading_level'
