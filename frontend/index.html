@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BookSuggester (Kid-Friendly)</title>
+    
+    <!-- Load Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#6EE7B7',
+                        accent: '#60A5FA',
+                        warm: '#FDE68A'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .chip { display: inline-flex; align-items: center; gap: .5rem; background: rgba(255,255,255,0.85); border-radius: 9999px; padding: .25rem .75rem; font-size: .875rem; box-shadow: 0 6px 18px rgba(2,6,23,0.06); }
+        .focus-ring:focus { outline: 3px solid rgba(96,165,250,0.35); outline-offset: 2px; }
+    </style>
+
+    <!-- Load React from official CDN with fixed versions -->
+    <script src="https://cdn.jsdelivr.net/npm/react@17.0.2/umd/react.development.js" crossorigin></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@17.0.2/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.22.17/babel.min.js"></script>
+</head>
+<body class="bg-gradient-to-b from-primary/40 to-white min-h-screen text-slate-800">
+    <div id="root" class="p-4 max-w-5xl mx-auto"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        function Header() {
+            return (
+                <header className="flex items-center justify-between mb-4">
+                    <h1 className="text-3xl font-bold">📚 BookSuggester</h1>
+                    <div className="text-sm text-slate-600">Kid-friendly picks just for you</div>
+                </header>
+            );
+        }
+
+        function Footer() { 
+            return <footer className="mt-8 text-sm text-slate-600">Made with care · Safe, friendly interface</footer>;
+        }
+
+        function SuggestionCard({item, onMoreLikeThis, onSave, onShare}) {
+            return (
+                <div className="bg-white rounded-2xl shadow-lg p-4 flex gap-4 items-start focus-ring" tabIndex={0} aria-label={`Book ${item.title}`}>
+                    <div className="w-24 h-36 rounded-md bg-slate-100 flex items-center justify-center flex-shrink-0">
+                        {item.cover_url ? (
+                            <img 
+                                src={item.cover_url} 
+                                alt="cover" 
+                                className="w-24 h-36 rounded-md object-cover"
+                                onError={(e) => {
+                                    e.target.onerror = null;
+                                    e.target.parentElement.innerHTML = `<div class="text-slate-400 text-sm text-center">📚<br/>${item.title.split(' ')[0]}</div>`;
+                                }}
+                            />
+                        ) : (
+                            <div className="text-slate-400 text-sm text-center">📚<br/>{item.title.split(' ')[0]}</div>
+                        )}
+                    </div>
+                    <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="text-lg font-semibold">{item.title}</h3>
+                                <div className="text-sm text-slate-600">by {item.author}{item.year? ` · ${item.year}`: ''}</div>
+                            </div>
+                            <div className="text-xs text-slate-500">⭐ {Math.round((item.confidence||0)*100)}%</div>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-700">{item.short_description}</p>
+                        <div className="mt-2 flex flex-wrap gap-2 items-center">
+                            <span className="chip">Age {item.age_range}</span>
+                            <span className="chip">{item.reading_time_minutes} min</span>
+                            {item.tags && item.tags.slice(0,4).map(t => <span className="chip" key={t}>{t}</span>)}
+                        </div>
+                        <div className="mt-3 flex gap-2">
+                            <button onClick={()=>onMoreLikeThis(item)} className="px-3 py-2 bg-accent text-white rounded-lg shadow-sm">More like this</button>
+                            <button onClick={()=>onSave(item)} className="px-3 py-2 bg-warm rounded-lg">Save</button>
+                            <button onClick={()=>onShare(item)} className="px-3 py-2 border rounded-lg">Share</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function SuggestionsGrid({results, onMoreLikeThis, onSave, onShare}) {
+            return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {results.fiction && (
+                        <section aria-labelledby="fiction-heading">
+                            <h2 id="fiction-heading" className="text-xl font-bold mb-2">Fiction</h2>
+                            <div className="flex flex-col gap-3">
+                                {results.fiction.map(it => (
+                                    <SuggestionCard 
+                                        key={it.title} 
+                                        item={it} 
+                                        onMoreLikeThis={onMoreLikeThis} 
+                                        onSave={onSave} 
+                                        onShare={onShare} 
+                                    />
+                                ))}
+                            </div>
+                        </section>
+                    )}
+                    {results.nonfiction && (
+                        <section aria-labelledby="nonfiction-heading">
+                            <h2 id="nonfiction-heading" className="text-xl font-bold mb-2">Nonfiction</h2>
+                            <div className="flex flex-col gap-3">
+                                {results.nonfiction.map(it => (
+                                    <SuggestionCard 
+                                        key={it.title} 
+                                        item={it} 
+                                        onMoreLikeThis={onMoreLikeThis} 
+                                        onSave={onSave} 
+                                        onShare={onShare}
+                                    />
+                                ))}
+                            </div>
+                        </section>
+                    )}
+                </div>
+            );
+        }
+
+        function ProfileForm({onSubmit, loading}) {
+            const [profile, setProfile] = useState({
+                age: 8,
+                gender: 'Prefer not to say',
+                favorite_video_games: [],
+                favorite_board_games: [],
+                fiction_preference: 'both',
+                movie_genres: [],
+                reading_level: 'Beginner',
+                interests: [],
+                preferred_format: 'Hardcover',
+                minutes_per_week: 60,
+                language: 'English',
+                accessibility_needs: [],
+                max_price: null,
+                favorite_authors: [],
+                disliked_themes: [],
+                surprise: false
+            });
+
+            function toggleArray(field, value) {
+                setProfile(p => ({
+                    ...p,
+                    [field]: p[field].includes(value) 
+                        ? p[field].filter(x => x !== value) 
+                        : [...p[field], value]
+                }));
+            }
+
+            function update(field, val) {
+                setProfile(p => ({...p, [field]: val}));
+            }
+
+            const videoGameOptions = ['Minecraft','Fortnite','Pokemon','Roblox','Mario','Animal Crossing'];
+            const boardOptions = ['Catan','Monopoly','Chess','Dixit','Ticket to Ride'];
+            const movieOptions = ['Adventure','Sci-Fi','Fantasy','Mystery','Animation','Comedy','Drama'];
+
+            return (
+                <form onSubmit={(e) => {e.preventDefault(); onSubmit(profile);}} className="bg-white/80 rounded-2xl p-4 shadow-md">
+                    <div className="flex gap-4 items-end">
+                        <div>
+                            <label className="block text-sm font-medium">Age</label>
+                            <div className="mt-1 flex items-center gap-2">
+                                <button type="button" onClick={() => update('age', Math.max(0, profile.age-1))} className="px-3 py-2 bg-white rounded-lg">-</button>
+                                <input 
+                                    aria-label="age" 
+                                    className="w-20 text-center text-lg rounded-lg focus-ring" 
+                                    type="number" 
+                                    value={profile.age} 
+                                    onChange={e => update('age', Number(e.target.value))} 
+                                />
+                                <button type="button" onClick={() => update('age', profile.age+1)} className="px-3 py-2 bg-white rounded-lg">+</button>
+                            </div>
+                            <div className="text-xs text-slate-500 mt-1">How old are you? Parents can help.</div>
+                        </div>
+                        <div className="flex-1">
+                            <label className="block text-sm font-medium">Gender</label>
+                            <select 
+                                value={profile.gender} 
+                                onChange={e => update('gender', e.target.value)} 
+                                className="w-full mt-1 rounded-lg p-2 focus-ring"
+                            >
+                                <option>Prefer not to say</option>
+                                <option>Girl</option>
+                                <option>Boy</option>
+                                <option>Non-binary</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium">Fiction</label>
+                            <select 
+                                value={profile.fiction_preference} 
+                                onChange={e => update('fiction_preference', e.target.value)} 
+                                className="mt-1 rounded-lg p-2"
+                            >
+                                <option value="fiction">Fiction</option>
+                                <option value="nonfiction">Nonfiction</option>
+                                <option value="both">Both</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium">Favorite video games</label>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                                {videoGameOptions.map(v => (
+                                    <button 
+                                        type="button" 
+                                        key={v} 
+                                        onClick={() => toggleArray('favorite_video_games', v)} 
+                                        className={`chip ${profile.favorite_video_games.includes(v)? 'ring-2 ring-accent':''}`}
+                                    >
+                                        {v}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium">Favorite board games</label>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                                {boardOptions.map(v => (
+                                    <button 
+                                        type="button" 
+                                        key={v} 
+                                        onClick={() => toggleArray('favorite_board_games', v)} 
+                                        className={`chip ${profile.favorite_board_games.includes(v)? 'ring-2 ring-accent':''}`}
+                                    >
+                                        {v}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="mt-4">
+                        <label className="block text-sm font-medium">Movie genres you like</label>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            {movieOptions.map(v => (
+                                <button 
+                                    type="button" 
+                                    key={v} 
+                                    onClick={() => toggleArray('movie_genres', v)} 
+                                    className={`chip ${profile.movie_genres.includes(v)? 'ring-2 ring-accent':''}`}
+                                >
+                                    {v}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium">Reading level</label>
+                            <select 
+                                value={profile.reading_level} 
+                                onChange={e => update('reading_level', e.target.value)} 
+                                className="mt-1 rounded-lg p-2 w-full"
+                            >
+                                <option>Beginner</option>
+                                <option>Intermediate</option>
+                                <option>Advanced</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium">Minutes to read/week</label>
+                            <input 
+                                type="number" 
+                                value={profile.minutes_per_week} 
+                                onChange={e => update('minutes_per_week', Number(e.target.value))} 
+                                className="mt-1 rounded-lg p-2 w-full" 
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium">Preferred format</label>
+                            <select 
+                                value={profile.preferred_format} 
+                                onChange={e => update('preferred_format', e.target.value)} 
+                                className="mt-1 rounded-lg p-2 w-full"
+                            >
+                                <option>Hardcover</option>
+                                <option>Paperback</option>
+                                <option>eBook</option>
+                                <option>Audiobook</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium">Interests / Hobbies (comma separated)</label>
+                            <input 
+                                className="mt-1 rounded-lg p-2 w-full" 
+                                value={profile.interests.join(', ')} 
+                                onChange={e => update('interests', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} 
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium">Accessibility needs</label>
+                            <select 
+                                multiple 
+                                value={profile.accessibility_needs} 
+                                onChange={e => update('accessibility_needs', Array.from(e.target.selectedOptions).map(o => o.value))} 
+                                className="mt-1 rounded-lg p-2 w-full h-24"
+                            >
+                                <option>Large-print</option>
+                                <option>Dyslexia-friendly font</option>
+                                <option>Audio</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="mt-4 flex items-center gap-4">
+                        <label className="flex items-center gap-2">
+                            <input 
+                                type="checkbox" 
+                                checked={profile.surprise} 
+                                onChange={e => update('surprise', e.target.checked)} 
+                            />
+                            Surprise me
+                        </label>
+                        <div className="ml-auto flex gap-2">
+                            <button 
+                                type="button" 
+                                onClick={() => {
+                                    setProfile({
+                                        age: 8,
+                                        gender: 'Prefer not to say',
+                                        favorite_video_games: [],
+                                        favorite_board_games: [],
+                                        fiction_preference: 'both',
+                                        movie_genres: [],
+                                        reading_level: 'Beginner',
+                                        interests: [],
+                                        preferred_format: 'Hardcover',
+                                        minutes_per_week: 60,
+                                        language: 'English',
+                                        accessibility_needs: [],
+                                        max_price: null,
+                                        favorite_authors: [],
+                                        disliked_themes: [],
+                                        surprise: false
+                                    });
+                                }} 
+                                className="px-4 py-2 bg-white rounded-lg"
+                            >
+                                Start over
+                            </button>
+                            <button 
+                                type="submit" 
+                                disabled={loading} 
+                                className="px-4 py-2 bg-accent text-white rounded-lg shadow-md"
+                            >
+                                {loading ? 'Finding...' : 'Find books!'}
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            );
+        }
+
+        function App() {
+            const [results, setResults] = useState({fiction:[], nonfiction:[]});
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState(null);
+            const [lastMeta, setLastMeta] = useState(null);
+            const [exclude, setExclude] = useState([]);
+            const [saved, setSaved] = useState(() => JSON.parse(localStorage.getItem('bookshelf')||'[]'));
+
+            useEffect(() => {
+                localStorage.setItem('bookshelf', JSON.stringify(saved));
+            }, [saved]);
+
+            async function getSuggestions(profile, opts = {}) {
+                setLoading(true);
+                setError(null);
+                try {
+                    console.log('Sending request with profile:', profile);
+                    const body = {
+                        profile,
+                        exclude_titles: opts.exclude_titles||exclude,
+                        max_results_per_category: opts.max_results_per_category||5,
+                        seed: opts.seed
+                    };
+                    const res = await fetch('http://localhost:4000/api/recommend', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(body)
+                    });
+                    if (!res.ok) {
+                        const errorText = await res.text();
+                        console.error('API error:', errorText);
+                        throw new Error(errorText);
+                    }
+                    const json = await res.json();
+                    console.log('API response:', json);
+                    setLastMeta(json.metadata);
+                    const f = (profile.fiction_preference === 'nonfiction') ? [] : (json.results.fiction || []);
+                    const nf = (profile.fiction_preference === 'fiction') ? [] : (json.results.nonfiction || []);
+                    setResults({fiction: f, nonfiction: nf});
+                    setExclude(prev => [
+                        ...prev,
+                        ...(json.excluded_titles||[]),
+                        ...((json.results.fiction||[]).map(x => x.title)),
+                        ...((json.results.nonfiction||[]).map(x => x.title))
+                    ]);
+                    document.getElementById('root').classList.add('animate-pulse');
+                    setTimeout(() => document.getElementById('root').classList.remove('animate-pulse'), 800);
+                } catch(err) {
+                    setError(String(err));
+                }
+                setLoading(false);
+            }
+
+            function handleMoreLikeThis(item) {
+                const profile = { age:8, fiction_preference:'both' };
+                getSuggestions(profile, {
+                    exclude_titles: [...exclude, item.title],
+                    max_results_per_category: 5,
+                    seed: Math.floor(Math.random()*10000)
+                });
+            }
+
+            function handleSave(item) {
+                setSaved(s => {
+                    if (s.find(x => x.title === item.title)) return s;
+                    return [...s, item];
+                });
+            }
+
+            function handleShare(item) {
+                const summary = {
+                    title: item.title,
+                    author: item.author,
+                    why: item.why_recommended
+                };
+                navigator.clipboard?.writeText(JSON.stringify(summary))
+                    .then(() => alert('Copied small summary to clipboard!'))
+                    .catch(err => console.error('Failed to copy:', err));
+            }
+
+            return (
+                <div>
+                    <Header />
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                        <div className="lg:col-span-1">
+                            <ProfileForm onSubmit={getSuggestions} loading={loading} />
+                            <div className="mt-4 bg-white/80 rounded-2xl p-3 shadow-md">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <div className="text-sm">Saved books</div>
+                                        <div className="text-xs text-slate-500">{saved.length} saved</div>
+                                    </div>
+                                    <button 
+                                        onClick={() => {
+                                            setSaved([]);
+                                            localStorage.removeItem('bookshelf');
+                                        }} 
+                                        className="text-sm px-3 py-1 rounded-lg bg-warm"
+                                    >
+                                        Clear
+                                    </button>
+                                </div>
+                                <div className="mt-2 flex flex-col gap-2">
+                                    {saved.map(s => (
+                                        <div key={s.title} className="chip">
+                                            {s.title}
+                                            <span className="ml-2 text-xs text-slate-500">by {s.author}</span>
+                                        </div>
+                                    ))}
+                                    {saved.length === 0 && (
+                                        <div className="text-xs text-slate-500">
+                                            No books yet — save a favorite!
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                        <main className="lg:col-span-2">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="text-sm text-slate-600">
+                                    {lastMeta ? `Results from ${new Date(lastMeta.timestamp).toLocaleString()}` : ''}
+                                </div>
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => {
+                                            if (lastMeta) {
+                                                alert('Use Find books! to run again.');
+                                            }
+                                        }} 
+                                        className="px-3 py-1 rounded-lg bg-white"
+                                    >
+                                        Refresh
+                                    </button>
+                                    <button 
+                                        onClick={() => {
+                                            setResults({fiction:[], nonfiction:[]});
+                                            setExclude([]);
+                                            setLastMeta(null);
+                                        }} 
+                                        className="px-3 py-1 rounded-lg"
+                                    >
+                                        Reset
+                                    </button>
+                                </div>
+                            </div>
+
+                            {error && (
+                                <div className="p-3 bg-red-100 text-red-700 rounded-lg">{error}</div>
+                            )}
+                            {!error && (results.fiction.length || results.nonfiction.length) ? (
+                                <div>
+                                    <SuggestionsGrid 
+                                        results={results}
+                                        onMoreLikeThis={handleMoreLikeThis}
+                                        onSave={handleSave}
+                                        onShare={handleShare}
+                                    />
+                                    <div className="mt-4 flex gap-2">
+                                        <button 
+                                            onClick={() => alert('Asking for more suggestions... (demo)')}
+                                            className="px-4 py-2 bg-accent text-white rounded-lg"
+                                        >
+                                            More please
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="p-6 bg-white/60 rounded-2xl text-center text-slate-600">
+                                    No results yet — fill the form and tap "Find books!"
+                                </div>
+                            )}
+                        </main>
+                    </div>
+                    <Footer />
+                </div>
+            );
+        }
+
+        // Initialize the app
+        ReactDOM.render(
+            <App />,
+            document.getElementById('root')
+        );
+    </script>
+</body>
+</html>
