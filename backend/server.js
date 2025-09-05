@@ -23,69 +23,74 @@ console.log('Environment variables loaded:', {
 });
 
 const app = express();
+const PORT = process.env.PORT || 4000;
+const USE_MOCK = process.env.MOCK_MODE === 'true';
+
+// Security middleware
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-eval'", "'unsafe-inline'", "unpkg.com"],
-      styleSrc: ["'self'", "'unsafe-inline'", "unpkg.com"],
-      imgSrc: ["'self'", "data:", "via.placeholder.com"],
-      connectSrc: ["'self'", "localhost:4000"],
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-eval'", "'unsafe-inline'", "cdn.jsdelivr.net", "unpkg.com"],
+            styleSrc: ["'self'", "'unsafe-inline'", "unpkg.com"],
+            imgSrc: ["'self'", "data:", "via.placeholder.com"],
+            connectSrc: ["'self'", "localhost:4000", "127.0.0.1:4000"],
+        },
     },
-  },
 }));
+
 app.use(cors({
-  origin: ['http://localhost:4000', 'http://127.0.0.1:4000', 'null'],
-  methods: ['GET', 'POST'],
-  credentials: true
+    origin: ['http://localhost:4000', 'http://127.0.0.1:4000', 'null'],
+    methods: ['GET', 'POST'],
+    credentials: true
 }));
+
 app.use(express.json({ limit: '200kb' }));
 
-const PORT = process.env.PORT || 4000;
-
-// basic rate limiter
-const limiter = rateLimit({ windowMs: 10 * 1000, // 10s
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: 'Too many requests, please slow down.'
+// Rate limiting
+const limiter = rateLimit({
+    windowMs: 10 * 1000, // 10s
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many requests, please slow down.'
 });
 app.use('/api/', limiter);
 
-const USE_MOCK = process.env.MOCK_MODE === 'true';
+function sanitizeText(s) {
+    if (!s) return s;
+    return String(s).replace(/[\u0000-\u001f\u007f-\u009f]/g, '');
+}
 
-function sanitizeText(s){ if(!s) return s; return String(s).replace(/[\u0000-\u001f\u007f-\u009f]/g, ''); }
+function buildPrompt(profile, maxPerCategory, excludeTitles, seed) {
+    const p = {
+        age: profile.age,
+        gender: profile.gender,
+        favorite_video_games: profile.favorite_video_games || [],
+        favorite_board_games: profile.favorite_board_games || [],
+        fiction_preference: profile.fiction_preference || 'both',
+        movie_genres: profile.movie_genres || [],
+        reading_level: profile.reading_level,
+        interests: profile.interests || [],
+        preferred_format: profile.preferred_format,
+        minutes_per_week: profile.minutes_per_week,
+        language: profile.language,
+        accessibility_needs: profile.accessibility_needs || [],
+        max_price: profile.max_price || null,
+        favorite_authors: profile.favorite_authors || [],
+        disliked_themes: profile.disliked_themes || [],
+        surprise: !!profile.surprise
+    };
 
-function buildPrompt(profile, maxPerCategory, excludeTitles, seed){
-  // concise summary
-  const p = {
-    age: profile.age,
-    gender: profile.gender,
-    favorite_video_games: profile.favorite_video_games || [],
-    favorite_board_games: profile.favorite_board_games || [],
-    fiction_preference: profile.fiction_preference || 'both',
-    movie_genres: profile.movie_genres || [],
-    reading_level: profile.reading_level,
-    interests: profile.interests || [],
-    preferred_format: profile.preferred_format,
-    minutes_per_week: profile.minutes_per_week,
-    language: profile.language,
-    accessibility_needs: profile.accessibility_needs || [],
-    max_price: profile.max_price || null,
-    favorite_authors: profile.favorite_authors || [],
-    disliked_themes: profile.disliked_themes || [],
-    surprise: !!profile.surprise
-  };
-
-  const system = `You are a book-suggestion engine specialized in providing age-appropriate recommendations for young readers.`;
-
-  const instruction = `You are a book recommendation expert helping a young reader find their next favorite books. Using the profile below, suggest appropriate books that match their interests, reading level, and preferences. Format your response as JSON with this exact schema:
+    const system = `You are a book recommendation expert helping a young reader find their next favorite books.`;
+    
+    const instruction = `Using the profile below, suggest appropriate books that match their interests, reading level, and preferences. Format your response as JSON with this exact schema:
 
 {
   "results": {
     "fiction": [{
       "title": "string",
-      "author": "string",
+      "author": "string", 
       "year": number|null,
       "isbn": "string"|null,
       "cover_url": "string"|null,
@@ -93,176 +98,198 @@ function buildPrompt(profile, maxPerCategory, excludeTitles, seed){
       "age_range": "string (e.g. '8-12')",
       "why_recommended": "string (personalized explanation)",
       "tags": ["string"],
-      "reading_time_minutes": number,
-      "confidence": number (0-1)
+      "content_warnings": ["string"]|null
     }],
     "nonfiction": [same schema as fiction]
   }
 }
 
-Profile: ${JSON.stringify(p, null, 2)}
+Reader Profile:
+${JSON.stringify(p, null, 2)}
 
-Requirements:
-- Suggest up to ${maxPerCategory} fiction and ${maxPerCategory} nonfiction books
-- Exclude these titles: ${JSON.stringify(excludeTitles || [])}
-- Use kid-friendly language and themes
-- Ensure recommendations respect accessibility needs
-- Give personalized 'why_recommended' reasons based on profile
-- For unknown fields (ISBN, cover_url), use null
-- Books should match reading level and age range
+Additional Requirements:
+- Suggest up to ${maxPerCategory} books in each category
+- Avoid these titles: ${JSON.stringify(excludeTitles)}
+- Seed for variety: ${seed}
+- Keep descriptions concise and kid-friendly
+- Include content warnings for sensitive themes
+- Balance educational value and entertainment
+- Consider accessibility needs
+- Respect budget constraints`;
 
-Respond with ONLY the JSON, no other text.`;
-
-  return { system, instruction };
+    return { system, instruction };
 }
 
-async function callGemini(prompt, profile){
-  console.log('Calling Gemini with mock mode:', USE_MOCK);
-  
-  if(USE_MOCK){
-    console.log('Using mock response');
-    return mockLLMResponse(profile, prompt);
-  }
+async function callGemini(profile, maxPerCategory, excludeTitles, seed) {
+    try {
+        const { system, instruction } = buildPrompt(profile, maxPerCategory, excludeTitles, seed);
+        
+        const response = await axios.post('https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent', {
+            contents: [{
+                role: 'user',
+                parts: [{
+                    text: instruction
+                }]
+            }],
+            generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 2048,
+                topP: 0.8,
+                topK: 40
+            },
+            safetySettings: [
+                {
+                    category: 'HARM_CATEGORY_HARASSMENT',
+                    threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+                },
+                {
+                    category: 'HARM_CATEGORY_HATE_SPEECH',
+                    threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+                },
+                {
+                    category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+                    threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+                },
+                {
+                    category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+                    threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+                }
+            ]
+        }, {
+            headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': process.env.GEMINI_API_KEY
+            }
+        });
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey.trim() === '') {
-    console.error('GEMINI_API_KEY is missing or empty');
-    throw new Error('GEMINI_API_KEY not set - check your .env file');
-  }
-  console.log('Using Gemini API with key:', apiKey.substring(0, 10) + '...');
-  if(!apiKey) throw new Error('GEMINI_API_KEY not set');
+        if (!response.data || !response.data.candidates || !response.data.candidates[0]) {
+            throw new Error('Invalid response from Gemini API');
+        }
 
-  // Call Gemini 2.5 Flash
-  const resp = await axios.post('https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent', {
-    contents: [{
-      role: 'user',
-      parts: [{
-        text: prompt.instruction
-      }]
-    }],
-    generationConfig: {
-      temperature: 0.7,
-      topK: 40,
-      topP: 0.95,
-      maxOutputTokens: 1024,
-    },
-    safetySettings: [{
-      category: "HARM_CATEGORY_HARASSMENT",
-      threshold: "BLOCK_MEDIUM_AND_ABOVE"
-    }, {
-      category: "HARM_CATEGORY_HATE_SPEECH",
-      threshold: "BLOCK_MEDIUM_AND_ABOVE"
-    }, {
-      category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-      threshold: "BLOCK_MEDIUM_AND_ABOVE"
-    }, {
-      category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-      threshold: "BLOCK_MEDIUM_AND_ABOVE"
-    }]
-  }, {
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': apiKey
+        const content = response.data.candidates[0].content;
+        if (!content || !content.parts || !content.parts[0] || !content.parts[0].text) {
+            throw new Error('No text content in Gemini response');
+        }
+
+        const text = content.parts[0].text;
+        let jsonStr = text;
+        
+        // Extract JSON if it's wrapped in markdown code blocks
+        if (text.includes('```json')) {
+            jsonStr = text.split('```json')[1].split('```')[0].trim();
+        } else if (text.includes('```')) {
+            jsonStr = text.split('```')[1].split('```')[0].trim();
+        }
+
+        try {
+            return JSON.parse(jsonStr);
+        } catch (parseError) {
+            console.error('Failed to parse Gemini response as JSON:', parseError);
+            console.log('Raw response:', text);
+            throw new Error('Invalid JSON response from Gemini');
+        }
+    } catch (error) {
+        console.error('Error calling Gemini API:', error);
+        throw error;
     }
-  });
+}
 
-  if(!resp.data || !resp.data.candidates || !resp.data.candidates[0]) {
-    throw new Error('Invalid response from Gemini');
-  }
+function mockLLMResponse(profile, maxPerCategory) {
+    const fiction = [{
+        title: "The Dragon's Secret",
+        author: "Maria Swift",
+        year: 2023,
+        isbn: "978-1234567890",
+        cover_url: "https://via.placeholder.com/200x300",
+        short_description: "A young wizard discovers a friendly dragon hiding in the school library, leading to an adventure about friendship and courage.",
+        age_range: "8-12",
+        why_recommended: `Based on ${profile.name}'s interest in fantasy games and love of adventure stories.`,
+        tags: ["fantasy", "friendship", "adventure", "dragons"],
+        content_warnings: ["mild peril"]
+    }];
 
-  try {
-    console.log('Received Gemini response');
-    const text = resp.data.candidates[0].content.parts[0].text;
-    console.log('Gemini response text:', text.substring(0, 200) + '...');
-    
-    const json = JSON.parse(text);
-    console.log('Parsed JSON successfully');
-    
-    // Add metadata
-    json.metadata = {
-      request_id: uuidv4(),
-      model: 'gemini-pro',
-      timestamp: new Date().toISOString()
+    const nonfiction = [{
+        title: "Amazing Science Experiments at Home",
+        author: "Dr. Sarah Smart",
+        year: 2024,
+        isbn: "978-0987654321",
+        cover_url: "https://via.placeholder.com/200x300",
+        short_description: "A collection of safe and fun science experiments that can be done with everyday household items.",
+        age_range: "7-13",
+        why_recommended: `Perfect for ${profile.name}'s interest in science and hands-on activities.`,
+        tags: ["science", "experiments", "education", "STEM"],
+        content_warnings: null
+    }];
+
+    return {
+        results: {
+            fiction: fiction.slice(0, maxPerCategory),
+            nonfiction: nonfiction.slice(0, maxPerCategory)
+        }
     };
-
-    return json;
-  } catch(e) {
-    throw new Error('Failed to parse Gemini response as JSON: ' + e.message);
-  }
 }
 
-function mockLLMResponse(profile, prompt){
-  // Create plausible results using profile
-  const now = new Date().toISOString();
-  const make = (title, tags, fiction=true)=> ({
-    title,
-    author: 'A. Writer',
-    year: 2020,
-    isbn: null,
-    cover_url: null,
-    short_description: `${title} is a fun ${fiction? 'story':'book'} about ${(profile.interests||[]).slice(0,2).join(' and ') || 'adventure'}.`.slice(0,250),
-    age_range: `${Math.max(4, profile.age-2)}-${profile.age+3}`,
-    why_recommended: `Matches interests: ${(profile.interests||[]).slice(0,3).join(', ') || 'general fun'}.`,
-    tags,
-    reading_time_minutes: Math.max(10, Math.round((profile.minutes_per_week||60)/5)),
-    confidence: 0.85
-  });
+// Serve static files from the root directory
+app.use(express.static(path.join(__dirname, '..')));
 
-  const fiction = [];
-  const nonfiction = [];
-  for(let i=0;i<Math.min(5, (prompt.maxPerCategory||5)); i++){
-    fiction.push(make(`Fun Story ${i+1}`, ['adventure','friendship'], true));
-    nonfiction.push(make(`Real Facts ${i+1}`, ['science','learning'], false));
-  }
-
-  return {
-    metadata: { request_id: uuidv4(), model: 'gemini-2.5-flash', timestamp: now },
-    results: { fiction, nonfiction },
-    warnings: [],
-    excluded_titles: []
-  };
-}
-
-function validateSchema(obj){
-  if(!obj || !obj.metadata || !obj.results) return false;
-  return true;
-}
-
-app.post('/api/recommend', async (req, res) => {
-  try{
-    console.log('Received recommendation request');
-    const body = req.body;
-    if(!body || !body.profile) return res.status(400).send('profile required');
-
-    console.log('Profile received:', JSON.stringify(body.profile, null, 2));
-    const profile = body.profile;
-    // sanitize text fields
-    for(const k of ['favorite_video_games','favorite_board_games','movie_genres','interests','accessibility_needs','favorite_authors','disliked_themes']){
-      if(Array.isArray(profile[k])) profile[k] = profile[k].map(sanitizeText);
-    }
-
-    const exclude_titles = Array.isArray(body.exclude_titles)? body.exclude_titles.map(sanitizeText) : [];
-    const maxPerCategory = Number(body.max_results_per_category) || 5;
-    const seed = body.seed || null;
-
-    const prompt = buildPrompt(profile, maxPerCategory, exclude_titles, seed);
-    // pass maxPerCategory into prompt object for mocks
-    prompt.maxPerCategory = maxPerCategory;
-
-    const llmResp = await callGemini(prompt, profile);
-
-    if(!validateSchema(llmResp)){
-      return res.status(502).send('Model returned invalid schema');
-    }
-
-    return res.json(llmResp);
-  }catch(err){
-    console.error('recommend error', err);
-    return res.status(500).send(String(err.message || err));
-  }
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', mock_mode: USE_MOCK });
 });
 
-// Serve frontend static files if available
-app.use('/', express.static(path.join(__dirname, '..', 'frontend')));
+// Book recommendation endpoint
+app.post('/api/recommend', async (req, res) => {
+    console.log('Received recommendation request:', JSON.stringify(req.body, null, 2));
 
-app.listen(PORT, ()=>{ console.log(`Server running on http://localhost:${PORT} (USE_MOCK=${USE_MOCK})`); });
+    try {
+        const profile = req.body;
+        if (!profile || !profile.age || !profile.reading_level) {
+            return res.status(400).json({
+                error: 'Invalid request. Required fields: age, reading_level'
+            });
+        }
+
+        // Sanitize text inputs
+        Object.keys(profile).forEach(key => {
+            if (typeof profile[key] === 'string') {
+                profile[key] = sanitizeText(profile[key]);
+            }
+        });
+
+        const maxPerCategory = Math.min(parseInt(req.query.max || '3'), 5);
+        const excludeTitles = (req.query.exclude || '').split(',').filter(Boolean);
+        const seed = req.query.seed || uuidv4();
+
+        let result;
+        if (USE_MOCK) {
+            console.log('Using mock LLM response');
+            result = mockLLMResponse(profile, maxPerCategory);
+        } else {
+            console.log('Calling Gemini API');
+            result = await callGemini(profile, maxPerCategory, excludeTitles, seed);
+        }
+
+        res.json(result);
+    } catch (error) {
+        console.error('Error processing recommendation:', error);
+        res.status(500).json({
+            error: 'Failed to generate recommendations',
+            details: error.message
+        });
+    }
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error('Unhandled error:', err);
+    res.status(500).json({
+        error: 'Internal server error',
+        details: err.message
+    });
+});
+
+// Start server
+app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Mock mode: ${USE_MOCK}`);
+});
