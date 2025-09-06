@@ -1,0 +1,21 @@
+# Node
+node_modules/
+
+# Environment
+.env
+backend/.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
+
+# Misc
+*.swp
+*.swo
