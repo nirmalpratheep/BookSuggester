@@ -1,37 +1,42 @@
-# BookSuggester
+# 📚 BookSuggester – Flask + Frontend
 
-Kid-friendly book suggestion app (frontend + backend). Frontend is a small React + Tailwind single-file demo. Backend is Node.js + Express that forwards profiles to Gemini (mock mode supported).
+This project is a **kid-friendly book recommendation app**.  
+It has:
 
-Quick start (development):
+- A **Flask backend** (`app.py`) that calls Google’s **Gemini API** (or uses mock responses).
+- A **frontend (`templates/index.html`)** form where kids/parents can enter details (age, gender, interests, games, characters, etc.).
+- Recommendations displayed live in the browser.
 
-1. Backend
+---
 
- - cd backend
- - npm install
- - copy `.env.example` to `.env` and set GEMINI_API_KEY if you want production mode
- - To run mock mode (recommended for local dev):
-   - set USE_MOCK=true in `.env` (default in example)
-   - npm run start
+## 🚀 Features
+- Flask backend with CORS enabled
+- Mock mode for development (no Gemini API needed)
+- Real mode with Google Gemini API
+- Clean JSON response with fiction + nonfiction categories
+- Frontend form with:
+  - Age, gender, reading level
+  - Favorite games, characters (e.g. *Harry Potter*, *Avengers*)
+  - Movie genres, hobbies, accessibility needs
+- Start Over button to reset the form
 
-2. Frontend
+---
 
- - open `frontend/index.html` in a browser (served by backend at http://localhost:4000 when backend runs)
+## ⚙️ Setup
 
-Notes
+### 1. Clone & Install
+```bash
+git clone <your-repo-url>
+cd <repo-folder>
+pip install -r requirements.txt
+```
 
-- Store real Gemini API key in `.env` as GEMINI_API_KEY and set USE_MOCK=false. The server has a TODO where the real API call should be implemented.
-- Backend endpoint: POST /api/recommend
-  - Request body: { profile: {...}, exclude_titles: [...], max_results_per_category: 5, seed: <optional> }
-  - Response: JSON following the strict schema described in the project spec. Mock mode returns realistic sample JSON.
+###2.env
+# Mock responses (true/false)
+MOCK_MODE=true
 
-Security
+# Gemini API key (needed only if MOCK_MODE=false)
+GEMINI_API_KEY=your_api_key_here
 
-- API keys must be set in the server environment and never shipped to the frontend.
-- Basic rate limiting is enabled on /api/ endpoints.
-
-Testing
-
- - cd backend
- - npm test
-# BookSuggester
-Personalised Book Suggester using AI
+# Server port
+PORT=5000
