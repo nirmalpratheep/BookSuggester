@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BookSuggester (Flask)</title>
+    <style>
+        body { font-family: sans-serif; background: #f0fdf4; color: #222; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 2rem auto; background: #fff; border-radius: 1rem; box-shadow: 0 4px 24px #0001; padding: 2rem; }
+        h1 { color: #2563eb; }
+        label { display: block; margin-top: 1rem; font-weight: bold; }
+        input, select { width: 100%; padding: 0.5rem; margin-top: 0.25rem; border-radius: 0.5rem; border: 1px solid #ccc; }
+        .checkbox-group, .checkbox-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.25rem; }
+        .checkbox-row label { font-weight: normal; margin-top: 0; }
+        button { margin-top: 1.5rem; padding: 0.75rem 2rem; background: #2563eb; color: #fff; border: none; border-radius: 0.5rem; font-size: 1rem; cursor: pointer; }
+        .results { margin-top: 2rem; }
+        .book { background: #f1f5f9; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem; }
+        .book h3 { margin: 0 0 0.5rem 0; }
+        .error { color: #dc2626; margin-top: 1rem; }
+        .row { display: flex; gap: 1rem; align-items: center; }
+        .row input[type=number] { width: 80px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📚 BookSuggester</h1>
+        <form id="profileForm">
+            <label>How old are you? Parents can help.
+                <input type="number" name="age" min="3" max="18" required>
+            </label>
+            <label>Gender
+                <select name="gender" required>
+                    <option value="">Select</option>
+                    <option value="boy">Boy</option>
+                    <option value="girl">Girl</option>
+                    <option value="nonbinary">Non-binary</option>
+                    <option value="prefer_not_to_say">Prefer not to say</option>
+                </select>
+            </label>
+            <label>Fiction or Nonfiction?
+                <select name="fiction_preference">
+                    <option value="both">Both</option>
+                    <option value="fiction">Fiction</option>
+                    <option value="nonfiction">Nonfiction</option>
+                </select>
+            </label>
+            <label>Favorite video games</label>
+            <div class="checkbox-row">
+                <label><input type="checkbox" name="favorite_video_games" value="Minecraft"> Minecraft</label>
+                <label><input type="checkbox" name="favorite_video_games" value="Fortnite"> Fortnite</label>
+                <label><input type="checkbox" name="favorite_video_games" value="Pokemon"> Pokemon</label>
+                <label><input type="checkbox" name="favorite_video_games" value="Roblox"> Roblox</label>
+                <label><input type="checkbox" name="favorite_video_games" value="Mario"> Mario</label>
+                <label><input type="checkbox" name="favorite_video_games" value="Animal Crossing"> Animal Crossing</label>
+            </div>
+            <label>Favorite board games</label>
+            <div class="checkbox-row">
+                <label><input type="checkbox" name="favorite_board_games" value="Catan"> Catan</label>
+                <label><input type="checkbox" name="favorite_board_games" value="Monopoly"> Monopoly</label>
+                <label><input type="checkbox" name="favorite_board_games" value="Chess"> Chess</label>
+                <label><input type="checkbox" name="favorite_board_games" value="Dixit"> Dixit</label>
+                <label><input type="checkbox" name="favorite_board_games" value="Ticket to Ride"> Ticket to Ride</label>
+            </div>
+<label>Favorite characters</label>
+<div class="checkbox-row">
+    <label><input type="checkbox" name="favorite_characters" value="Harry Potter"> Harry Potter</label>
+    <label><input type="checkbox" name="favorite_characters" value="Avengers"> Avengers</label>
+    <label><input type="checkbox" name="favorite_characters" value="Spiderman"> Spiderman</label>
+    <label><input type="checkbox" name="favorite_characters" value="Frozen (Elsa & Anna)"> Frozen (Elsa & Anna)</label>
+    <label><input type="checkbox" name="favorite_characters" value="Percy Jackson"> Percy Jackson</label>
+</div>
+<label>Other characters (comma separated)
+    <input type="text" name="favorite_characters_extra" placeholder="e.g. Moana, Batman">
+</label>
+
+            <label>Movie genres you like</label>
+            <div class="checkbox-row">
+                <label><input type="checkbox" name="movie_genres" value="Adventure"> Adventure</label>
+                <label><input type="checkbox" name="movie_genres" value="Sci-Fi"> Sci-Fi</label>
+                <label><input type="checkbox" name="movie_genres" value="Fantasy"> Fantasy</label>
+                <label><input type="checkbox" name="movie_genres" value="Mystery"> Mystery</label>
+                <label><input type="checkbox" name="movie_genres" value="Animation"> Animation</label>
+                <label><input type="checkbox" name="movie_genres" value="Comedy"> Comedy</label>
+                <label><input type="checkbox" name="movie_genres" value="Drama"> Drama</label>
+            </div>
+            <label>Reading level
+                <select name="reading_level" required>
+                    <option>Beginner</option>
+                    <option>Intermediate</option>
+                    <option>Advanced</option>
+                </select>
+            </label>
+            <div class="row">
+                <label>Minutes to read/week
+                    <input type="number" name="minutes_per_week" min="0" max="10000" value="60">
+                </label>
+                <label>Preferred format
+                    <select name="preferred_format">
+                        <option value="">Any</option>
+                        <option value="Hardcover">Hardcover</option>
+                        <option value="Paperback">Paperback</option>
+                        <option value="Ebook">Ebook</option>
+                        <option value="Audio">Audio</option>
+                    </select>
+                </label>
+            </div>
+            <label>Interests / Hobbies (comma separated)
+                <input type="text" name="interests" placeholder="e.g. animals, science, adventure">
+            </label>
+            <label>Accessibility needs</label>
+            <div class="checkbox-row">
+                <label><input type="checkbox" name="accessibility_needs" value="Large-print"> Large-print</label>
+                <label><input type="checkbox" name="accessibility_needs" value="Dyslexia-friendly font"> Dyslexia-friendly font</label>
+                <label><input type="checkbox" name="accessibility_needs" value="Audio"> Audio</label>
+            </div>
+            <div class="row">
+                <button type="button" onclick="profileForm.reset();document.getElementById('results').innerHTML='';document.getElementById('error').textContent='';">Start over</button>
+                <button type="submit">Find books!</button>
+            </div>
+        </form>
+        <div class="error" id="error"></div>
+        <div class="results" id="results"></div>
+    </div>
+    <script>
+    document.getElementById('profileForm').onsubmit = async function(e) {
+        e.preventDefault();
+        document.getElementById('error').textContent = '';
+        document.getElementById('results').innerHTML = 'Loading...';
+        const form = e.target;
+        // Helper to get all checked values for a checkbox group
+        function getChecked(name) {
+            return Array.from(form.querySelectorAll(`input[name='${name}']:checked`)).map(cb => cb.value);
+        }
+        const profile = {
+            age: form.age.value,
+            gender: form.gender.value,
+            fiction_preference: form.fiction_preference.value,
+            favorite_video_games: getChecked('favorite_video_games'),
+            favorite_board_games: getChecked('favorite_board_games'),
+            favorite_characters: form.favorite_characters.value.split(',').map(s => s.trim()).filter(Boolean),
+            movie_genres: getChecked('movie_genres'),
+            reading_level: form.reading_level.value,
+            minutes_per_week: form.minutes_per_week.value,
+            preferred_format: form.preferred_format.value,
+            interests: form.interests.value.split(',').map(s => s.trim()).filter(Boolean),
+            accessibility_needs: getChecked('accessibility_needs')
+        };
+        try {
+            const res = await fetch('/api/recommend', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ profile })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Unknown error');
+            const f = (data.results && Array.isArray(data.results.fiction)) ? data.results.fiction : [];
+            const nf = (data.results && Array.isArray(data.results.nonfiction)) ? data.results.nonfiction : [];
+            let html = '';
+            if (f.length) {
+                html += '<h2>Fiction</h2>';
+                f.forEach(book => html += renderBook(book));
+            }
+            if (nf.length) {
+                html += '<h2>Nonfiction</h2>';
+                nf.forEach(book => html += renderBook(book));
+            }
+            if (!f.length && !nf.length) html = '<div>No suggestions found.</div>';
+            document.getElementById('results').innerHTML = html;
+        } catch (err) {
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('error').textContent = err.message;
+        }
+    };
+    function renderBook(book) {
+        return `<div class="book">
+            <h3>${book.title} <span style="font-size:0.9em;color:#888;">by ${book.author}${book.year ? ' · ' + book.year : ''}</span></h3>
+            <div>${book.short_description || ''}</div>
+            <div><b>Age:</b> ${book.age_range || ''}</div>
+            <div><b>Tags:</b> ${(book.tags||[]).join(', ')}</div>
+        </div>`;
+    }
+    </script>
+</body>
+</html>
